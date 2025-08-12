@@ -1,0 +1,105 @@
+"use client";
+
+import { Button } from "@/components/ui/button";
+import { Loading } from "@/components/ui/loading";
+import { CheckIcon, PlusIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
+import {
+  forwardRef,
+  useState,
+  type ComponentProps,
+  type ElementRef,
+} from "react";
+import { toast } from "sonner";
+import { type NewPlan } from "@/db/schema";
+import { changePlan, getCheckoutURL } from "@/app/actions";
+import { cn } from "@/lib/utils";
+
+type ButtonElement = ElementRef<typeof Button>;
+type ButtonProps = ComponentProps<typeof Button> & {
+  embed?: boolean;
+  isChangingPlans?: boolean;
+  currentPlan?: NewPlan | null;
+  plan: NewPlan;
+};
+
+export const SignupButton = forwardRef<ButtonElement, ButtonProps>(
+  (props, ref) => {
+    const router = useRouter();
+    const [loading, setLoading] = useState(false);
+    const {
+      embed = true,
+      plan,
+      currentPlan,
+      isChangingPlans = false,
+      ...otherProps
+    } = props;
+
+    const isCurrent = currentPlan && plan.id === currentPlan.id;
+
+    // eslint-disable-next-line no-nested-ternary -- allow
+    const label = isCurrent
+      ? "Your plan"
+      : isChangingPlans
+        ? "Switch to this plan"
+        : "Sign up";
+
+    // eslint-disable-next-line no-nested-ternary -- disabled
+    const iconElement = loading ? (
+      <Loading size="sm" className="size-4" color="secondary" />
+    ) : isCurrent ? (
+      <CheckIcon className="size-4" />
+    ) : (
+      <PlusIcon className="size-4" />
+    );
+
+    return (
+      <Button
+        ref={ref}
+        disabled={(loading || isCurrent) ?? props.disabled}
+        className={cn("flex items-center gap-2", props.className)}
+        onClick={async () => {
+          // If changing plans, call server action.
+          if (isChangingPlans) {
+            if (!currentPlan?.id) {
+              throw new Error("Current plan not found.");
+            }
+
+            if (!plan.id) {
+              throw new Error("New plan not found.");
+            }
+
+            setLoading(true);
+            await changePlan(currentPlan.id, plan.id);
+            setLoading(false);
+
+            return;
+          }
+
+          // Otherwise, create a checkout and open the Lemon.js modal.
+          let checkoutUrl: string | undefined = "";
+          try {
+            setLoading(true);
+            checkoutUrl = await getCheckoutURL(plan.variantId, embed);
+          } catch (error) {
+            setLoading(false);
+            toast("Error creating a checkout.", {
+              description:
+                "Please check the server console for more information.",
+            });
+          } finally {
+            embed && setLoading(false);
+          }
+
+          embed
+            ? checkoutUrl && window.LemonSqueezy.Url.Open(checkoutUrl)
+            : router.push(checkoutUrl ?? "/");
+        }}
+        {...otherProps}
+      >
+        {iconElement}
+        {label}
+      </Button>
+    );
+  },
+);
